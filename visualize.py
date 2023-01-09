@@ -86,9 +86,15 @@ def plot_cv_indices(X, y, group, n_groups, p_true, ax, lw=10):
             else: indices[j] = 0
         
         n = 3*count
+        discard = []
         for j in range(offset,offset+n):
             indices[j] = 1
-        rd = random.sample(range(offset,offset+n), count)
+            discard.append(j)
+        train_false = []
+        for j in range(int(100*p_true),len(X)):
+            if j not in discard:
+                train_false.append(j)
+        rd = random.sample(train_false, count)
         for r in rd:
             indices[r] = 2
         offset += n
