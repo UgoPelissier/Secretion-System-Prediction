@@ -11,6 +11,13 @@ Created on Sat Nov 26 19:44:08 2022
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+from joblib import Memory
+import time
+
+location = './cache'
+memory = Memory(location, verbose=0)
+
+start = time.time()
 
 #-----------------------------------------------------------------------------#
 # PHASE 1: Preliminary analysis of the dataset and analysis plan
@@ -42,17 +49,29 @@ def labels_proportion(labels):
     
     p_true = (1*labels["label"]).sum()/len(labels)
     p_false = 1-p_true
-    p = [p_true,p_false]
-    fig, ax = plt.subplots()
-    plt.bar(["True","False"], [p_true,p_false])
-    j = 0
-    for i in ax.patches:
-        plt.text(i.get_x()+0.3, i.get_y()+0.1,
-                 str(round(p[j], 3)),
-                 fontsize = 12, fontweight ='bold')
-        j += 1
-    plt.show()
-    # print("p_true =",round(p_true,3))
+    if(False):
+        p = [p_true,p_false]
+        fig, ax = plt.subplots()
+        plt.bar(["True","False"], [p_true,p_false])
+        j = 0
+        for i in ax.patches:
+            plt.text(i.get_x()+0.3, i.get_y()+0.1,
+                     str(round(p[j], 3)),
+                     fontsize = 12, fontweight ='bold')
+            j += 1
+        plt.show()
+    return p_true
+    
+def index_true_false(labels):
+    labels = labels.values
+    index_true = []
+    index_false = []
+    for i in range(len(labels)):
+        if ((labels[i,:].sum())>0):
+            index_true.append(i)
+        else:
+            index_false.append(i)
+    return index_true, index_false
     
 def secretion_system_name(column):
     """
@@ -127,8 +146,10 @@ def sum_labels(secretion_system, s_complete, index):
             temp += s_complete[j]
         s = np.append(s,temp)
     p = s/s.sum()
-    plt.bar(secretion_system, s)
-    plt.xticks(rotation=45)
+    if(False):
+        plt.bar(secretion_system, s)
+        plt.xticks(rotation=45)
+        plt.show()
     return s, p
 
 def double_proportion(complete_labels):
@@ -141,21 +162,202 @@ def double_proportion(complete_labels):
     """
     
     complete_labels = complete_labels.values
+    m = 0
     n = 0
     for i in range(len(complete_labels)):
-        if ((complete_labels[i,:].sum())>1):
-            n += 1
-    print("p_double =",round(n/len(complete_labels),3))
-    
+        if ((complete_labels[i,:].sum())>0):
+            m += 1
+            if (len((np.where(complete_labels[i,:]>0)[0]))>1):
+                n += 1
+    print("p_double_all =",round(n/len(complete_labels),3))
+    print("p_double_true =",round(n/m,3))
+ 
+load_labels = memory.cache(load_labels)
 labels = load_labels()
-labels_proportion(labels)
+p_true = labels_proportion(labels)
 
+load_complete_labels = memory.cache(load_complete_labels)
 complete_labels = load_complete_labels()
+
 sec_sys, index = secretion_system_list(complete_labels)
 s_complete = sum_complete_labels(complete_labels)
 s, p = sum_labels(sec_sys,s_complete,index)
-double_proportion(complete_labels)
+# double_proportion(complete_labels)
+
+#-----------------------------------------------------------------------------#
+# IMPORT DEPENDENCIES
+#-----------------------------------------------------------------------------#
+import random
+from sklearn.metrics import balanced_accuracy_score, confusion_matrix, ConfusionMatrixDisplay
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA, TruncatedSVD
+from sklearn.model_selection import LeaveOneGroupOut, GridSearchCV
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.pipeline import Pipeline
+from scipy.sparse import csr_matrix
+import scipy.stats as stats
 
 #-----------------------------------------------------------------------------#
 # PHASE 2: Predicting protein function from it’s sequence
 #-----------------------------------------------------------------------------#
+def encode_complete_labels(complete_labels, index, s):
+    families = []
+    groups = []
+    complete_labels = complete_labels.values
+    for i in range(len(complete_labels)):
+        if ((complete_labels[i,:].sum())>0):
+            l = list()
+            temp = np.where(complete_labels[i,:] > 0)[0]
+            for t in temp:
+                for j in range(len(index)-1):
+                    if ( (index[j]<=t) and (t<index[j+1]) ):
+                        if (j+1) not in l:
+                            l.append(j+1)
+            if (len(l)==0):
+                l.append(0)
+            families.append(l)
+            temp = [ s[k-1] for k in l]
+            groups.append(l[np.argmin(temp)])
+        else:
+            families.append(0)
+            groups.append(0)
+    return families, np.array(groups)
+
+def load_features():
+    X = pd.read_csv("dataset/partial_dataset_train/features.csv", index_col=0)
+    X = X[:30000]
+    return X
+
+def group_k_fold_true(X,y,groups,index_true,index_false,p_true):
+    X_temp = X.values[index_true]
+    y_temp = y.values[index_true]
+    groups_temp = groups[index_true]
+    
+    index_true_test = []
+    index_true_train = []
+    
+    size_false_test = []
+    size_false_train = []
+    
+    logo = LeaveOneGroupOut()
+    for i, (train_index, test_index) in enumerate(logo.split(X_temp, y_temp, groups=groups_temp)):
+        
+        index_true_test.append([index_true[idx] for idx in test_index])
+        index_true_train.append([index_true[idx] for idx in train_index])
+        
+        size_false_test.append(int(len(groups_temp[test_index])/p_true))
+        size_false_train.append(len(X)-int(len(groups_temp[test_index])/p_true))
+        
+    return index_true_test, index_true_train, size_false_test, size_false_train
+
+def group_k_fold_false(X,y,index_false,size_false_test,size_false_train):
+    X_temp = X.values[index_false]
+    y_temp = y.values[index_false]
+    
+    index_false_test = []
+    index_false_train = []
+    
+    for i in range(len(size_false_test)):
+        start = int(np.array(size_false_test[0:i]).sum())
+        end = start + size_false_test[i]
+        
+        if(end>=len(X_temp)):
+            end = end%len(index_false)
+            index = [*range(start,len(X_temp))] + [*range(0,end)]
+            index_false_test.append([index_false[idx] for idx in index])
+            
+            index = [*range(end,start)]
+            index_false_train.append([index_false[idx] for idx in index])
+            start = 0
+            
+        else:
+            index_false_test.append([index_false[idx] for idx in range(start,end)])
+        
+            index = [*range(0,start)] + [*range(end,len(X_temp))]
+            index_false_train.append([index_false[idx] for idx in index])
+        
+    return index_false_test, index_false_train
+
+def assemble_train_test_index(index_false_test,index_false_train,index_true_test,index_true_train):
+    train_index = []
+    test_index = []
+    for i in range(len(index_false_test)):
+        if (len(index_true_test[i])>20):
+            train_index.append(index_false_train[i] + index_true_train[i])
+            test_index.append(index_false_test[i] + index_true_test[i])
+    return train_index, test_index
+
+def random_undersample(index_false_train,index_true_train,index_true_test):
+    undersample_train_index = []
+    for i in range(len(index_true_train)):
+        if (len(index_true_test[i])>20):
+            rd = random.sample(range(len(index_false_train[i])), len(index_true_train[i]))
+            undersample_train_index.append([index_false_train[i][r] for r in rd ] + index_true_train[i])
+    return undersample_train_index
+
+def remove_null(X):
+    return X.loc[:, (X != 0).all(axis=0)]
+
+def z_score(X):
+    return np.abs(stats.zscore(X))
+
+def remove_outliers(X,y,groups,z,n):
+    return X[(z<n).all(axis=1)], y[(z<n).all(axis=1)], groups[(z<n).all(axis=1)]
+
+def pipeline(X,y,train_index,test_index):
+    
+    sc = StandardScaler()
+    X = sc.fit_transform(X.values)
+    
+    X_sparse = csr_matrix(X)
+    svd = TruncatedSVD(n_components=10, random_state=42)
+    X_svd = svd.fit(X_sparse).transform(X_sparse)
+    
+    pca = PCA(n_components=10, svd_solver='full')
+    X_pca = pca.fit_transform(X)
+    
+    y = y.values.flatten()
+    
+    acc_log_reg = []
+    for i in range(len(test_index)):
+        X_train = X_svd[train_index[i]]
+        y_train = y[train_index[i]]
+
+        X_test = X_svd[test_index[i]]
+        y_test = y[test_index[i]]
+        
+        clf = LogisticRegression(solver='newton-cg', max_iter=1000)
+        clf = clf.fit(X_train, y_train)
+        y_pred = clf.predict(X_test)
+        acc_log_reg.append(balanced_accuracy_score(y_test, y_pred))
+        
+    return np.array(acc_log_reg)
+
+encode_families, groups = encode_complete_labels(complete_labels, index, s)    
+
+load_features = memory.cache(load_features)
+X = load_features()
+y = labels[:30000]
+groups = groups[:30000]
+z = z_score(X)
+
+X,y,groups = remove_outliers(X,y,groups,z,n=4)
+p_true = labels_proportion(y)
+
+index_true, index_false = index_true_false(y)
+index_true_test, index_true_train, size_false_test, size_false_train = group_k_fold_true(X, y, groups, index_true, index_false, p_true)
+index_false_test, index_false_train = group_k_fold_false(X,y,index_false,size_false_test,size_false_train)
+train_index, test_index = assemble_train_test_index(index_false_test,index_false_train,index_true_test,index_true_train)
+undersample_train_index = random_undersample(index_false_train,index_true_train,index_true_test)
+
+m = []
+solvers = ["lbfgs", "liblinear", "newton-cg", "sag", "saga"]
+for solver in solvers:
+    acc_log_reg = pipeline(X,y,undersample_train_index,test_index,solver)
+    m.append([np.max(acc_log_reg),np.mean(acc_log_reg)])
+m = np.array(m)
+
+end = time.time()
+print('\nThe function took {:.2f}s to compute.'.format(end - start))
