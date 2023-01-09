@@ -352,12 +352,7 @@ index_false_test, index_false_train = group_k_fold_false(X,y,index_false,size_fa
 train_index, test_index = assemble_train_test_index(index_false_test,index_false_train,index_true_test,index_true_train)
 undersample_train_index = random_undersample(index_false_train,index_true_train,index_true_test)
 
-m = []
-solvers = ["lbfgs", "liblinear", "newton-cg", "sag", "saga"]
-for solver in solvers:
-    acc_log_reg = pipeline(X,y,undersample_train_index,test_index,solver)
-    m.append([np.max(acc_log_reg),np.mean(acc_log_reg)])
-m = np.array(m)
+acc_log_reg = pipeline(X,y,undersample_train_index,test_index)
 
 end = time.time()
 print('\nThe function took {:.2f}s to compute.'.format(end - start))
