@@ -370,12 +370,37 @@ def random_undersample(index_false_train,index_true_train,index_true_test):
     return undersample_train_index
 
 def remove_null(X):
+    """
+    X: pandas array - Features matrix
+    
+    Remove any feature presetning a null value (not used for now)
+
+    """
+    
     return X.loc[:, (X != 0).all(axis=0)]
 
 def z_score(X):
+    """
+    X: pandas array - Features matrix
+    
+    Compute the z-score for each protein and each feature
+
+    """
+    
     return np.abs(stats.zscore(X))
 
 def remove_outliers(X,y,groups,z,n):
+    """
+    X: pandas array - Features matrix
+    y: pandas array - Labels
+    groups: array of int - The family each protein is attributed to (by chosing the lesss represented family)
+    z: pandas array - z-score
+    n: int - Threshold
+    
+    Remove a protein as soon as its z-score for any feature is above threshold n
+
+    """
+    
     return X[(z<n).all(axis=1)], y[(z<n).all(axis=1)], groups[(z<n).all(axis=1)]
 
 def pipeline(X,y,train_index,test_index):

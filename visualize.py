@@ -137,6 +137,6 @@ fig, ax = plt.subplots()
 plot_cv_indices(X, y, groups, n_groups, p_true, ax)
 ax.legend(
     [Patch(color=cmap_cv(0.8)), Patch(color=cmap_cv(0.02)), Patch(color=cmap_cv(2.0))],
-    ["Testing set", "Training set", "Random Downsampling"],
+    ["Testing set", "Training set", "Downsampling"],
     loc=(1.02, 0.8),
 )
