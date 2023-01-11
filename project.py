@@ -63,6 +63,13 @@ def labels_proportion(labels):
     return p_true
     
 def index_true_false(labels):
+    """
+    labels: pandas array of labels.csv for the train data set
+    
+    Returns the indexes of positive and negative labels
+
+    """
+    
     labels = labels.values
     index_true = []
     index_false = []
@@ -156,8 +163,7 @@ def double_proportion(complete_labels):
     """
     complete_labels: pandas array of complete_labels.csv for the train data set  
     
-    Returns
-        Proportion of proteins belonging to multiple secretion system families
+    Returns the proportion of proteins belonging to multiple secretion system families
 
     """
     
@@ -203,6 +209,17 @@ import scipy.stats as stats
 # PHASE 2: Predicting protein function from it’s sequence
 #-----------------------------------------------------------------------------#
 def encode_complete_labels(complete_labels, index, s):
+    """
+    complete_labels: pandas array of complete_labels.csv for the train data set
+    index: array of int - Delimitation of the belonging of the columns to a large family
+    s: array of int - Number of proteins belonging to each large secretion system families
+    
+    Returns
+        families: list of tuple of int - The families each protein belongs to (can belong to several families)
+        groups: array of int - The family each protein is attributed to (by chosing the lesss represented family)
+
+    """
+    
     families = []
     groups = []
     complete_labels = complete_labels.values
@@ -226,11 +243,31 @@ def encode_complete_labels(complete_labels, index, s):
     return families, np.array(groups)
 
 def load_features():
+    """
+    Returns pandas array of features.csv for the train data set
+
+    """
+    
     X = pd.read_csv("dataset/partial_dataset_train/features.csv", index_col=0)
     X = X[:30000]
     return X
 
 def group_k_fold_true(X,y,groups,index_true,index_false,p_true):
+    """
+    X: pandas array - Features matrix
+    y: pandas array - Labels
+    index_true: list of int- Indexes of true labels
+    index_false: list of int- Indexes of false labels
+    p_true: float - Proportion of true labels
+    
+    Returns
+        index_true_test: array of list of int - Indexes of the true labels to use for each test set
+        index_true_train: array of list of int - Indexes of the true labels to use for each train set
+        size_false_test: list of int - Numbers of false labels to complete each test set to respect the initial labels proportion
+        size_false_train: list of int - Numbers of false labels to complete each train set to respect the initial labels proportion
+
+    """
+    
     X_temp = X.values[index_true]
     y_temp = y.values[index_true]
     groups_temp = groups[index_true]
@@ -253,6 +290,20 @@ def group_k_fold_true(X,y,groups,index_true,index_false,p_true):
     return index_true_test, index_true_train, size_false_test, size_false_train
 
 def group_k_fold_false(X,y,index_false,size_false_test,size_false_train):
+    """
+    X: pandas array - Features matrix
+    y: pandas array - Labels
+    index_false: list of int- Indexes of false labels
+    size_false_test: list of int - Numbers of false labels to complete each test set to respect the initial labels proportion
+    size_false_train: list of int - Numbers of false labels to complete each train set to respect the initial labels proportion
+
+
+    Returns
+        index_false_test: array of list of int - Indexes of the true labels to use for each test set
+        index_false_train: array of list of int - Indexes of the true labels to use for each train set
+
+    """
+    
     X_temp = X.values[index_false]
     y_temp = y.values[index_false]
     
@@ -281,6 +332,18 @@ def group_k_fold_false(X,y,index_false,size_false_test,size_false_train):
     return index_false_test, index_false_train
 
 def assemble_train_test_index(index_false_test,index_false_train,index_true_test,index_true_train):
+    """
+    index_false_test: array of list of int - Indexes of the true labels to use for each test set
+    index_false_train: array of list of int - Indexes of the true labels to use for each train set
+    index_true_test: array of list of int - Indexes of the true labels to use for each test set
+    index_true_train: array of list of int - Indexes of the true labels to use for each train set
+    
+    Returns
+        train_index: array of list of int - Indexes for the training sets in the cross-validation iterations
+        train_index: array of list of int - Indexes for the testing sets in the cross-validation iterations
+
+    """
+    
     train_index = []
     test_index = []
     for i in range(len(index_false_test)):
@@ -290,6 +353,15 @@ def assemble_train_test_index(index_false_test,index_false_train,index_true_test
     return train_index, test_index
 
 def random_undersample(index_false_train,index_true_train,index_true_test):
+    """
+    index_false_train: array of list of int - Indexes of the true labels to use for each train set
+    index_true_train: array of list of int - Indexes of the true labels to use for each train set
+    
+    Returns
+        undersample_train_index: array of list of int - Indexes for the training sets in the cross-validation iterations
+
+    """
+    
     undersample_train_index = []
     for i in range(len(index_true_train)):
         if (len(index_true_test[i])>20):
@@ -312,10 +384,10 @@ def pipeline(X,y,train_index,test_index):
     X = sc.fit_transform(X.values)
     
     X_sparse = csr_matrix(X)
-    svd = TruncatedSVD(n_components=10, random_state=42)
+    svd = TruncatedSVD(n_components=100, random_state=42)
     X_svd = svd.fit(X_sparse).transform(X_sparse)
     
-    pca = PCA(n_components=10, svd_solver='full')
+    pca = PCA(n_components=400, svd_solver='full')
     X_pca = pca.fit_transform(X)
     
     y = y.values.flatten()
@@ -328,8 +400,12 @@ def pipeline(X,y,train_index,test_index):
         X_test = X_svd[test_index[i]]
         y_test = y[test_index[i]]
         
-        clf = LogisticRegression(solver='newton-cg', max_iter=1000)
-        clf = clf.fit(X_train, y_train)
+        # clf = LogisticRegression(solver='newton-cg', max_iter=1000)
+        # clf = clf.fit(X_train, y_train)
+        
+        clf = SVC()
+        clf.fit(X_train, y_train)
+        
         y_pred = clf.predict(X_test)
         acc_log_reg.append(balanced_accuracy_score(y_test, y_pred))
         
@@ -352,12 +428,7 @@ index_false_test, index_false_train = group_k_fold_false(X,y,index_false,size_fa
 train_index, test_index = assemble_train_test_index(index_false_test,index_false_train,index_true_test,index_true_train)
 undersample_train_index = random_undersample(index_false_train,index_true_train,index_true_test)
 
-m = []
-solvers = ["lbfgs", "liblinear", "newton-cg", "sag", "saga"]
-for solver in solvers:
-    acc_log_reg = pipeline(X,y,undersample_train_index,test_index,solver)
-    m.append([np.max(acc_log_reg),np.mean(acc_log_reg)])
-m = np.array(m)
+acc_log_reg = pipeline(X,y,undersample_train_index,test_index)
 
 end = time.time()
 print('\nThe function took {:.2f}s to compute.'.format(end - start))
