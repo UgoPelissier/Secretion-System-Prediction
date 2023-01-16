@@ -194,7 +194,7 @@ s, p = sum_labels(sec_sys,s_complete,index)
 # IMPORT DEPENDENCIES
 #-----------------------------------------------------------------------------#
 import random
-from sklearn.metrics import balanced_accuracy_score, confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import balanced_accuracy_score, fbeta_score, confusion_matrix, ConfusionMatrixDisplay
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA, TruncatedSVD
 from sklearn.model_selection import LeaveOneGroupOut, GridSearchCV
@@ -202,8 +202,18 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 from sklearn.pipeline import Pipeline
+from sklearn.utils.class_weight import compute_class_weight
 from scipy.sparse import csr_matrix
 import scipy.stats as stats
+
+
+# from sklearn.neural_network import MLPClassifier
+# from sklearn.gaussian_process import GaussianProcessClassifier
+# from sklearn.gaussian_process.kernels import RBF
+# from sklearn.tree import DecisionTreeClassifier
+# from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
+# from sklearn.naive_bayes import GaussianNB
+# from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
 
 #-----------------------------------------------------------------------------#
 # PHASE 2: Predicting protein function from it’s sequence
@@ -249,7 +259,7 @@ def load_features():
     """
     
     X = pd.read_csv("dataset/partial_dataset_train/features.csv", index_col=0)
-    X = X[:30000]
+    print('\nFeatures loaded.')
     return X
 
 def group_k_fold_true(X,y,groups,index_true,index_false,p_true):
@@ -346,16 +356,28 @@ def assemble_train_test_index(index_false_test,index_false_train,index_true_test
     
     train_index = []
     test_index = []
-    for i in range(len(index_false_test)):
-        if (len(index_true_test[i])>20):
-            train_index.append(index_false_train[i] + index_true_train[i])
-            test_index.append(index_false_test[i] + index_true_test[i])
-    return train_index, test_index
+    
+    arg_max = 0
+    m = 0
+    for i in range(len(index_true_test)):
+        if (len(index_true_test[i])>m):
+            arg_max = i
+            m = len(index_true_test[i])
+    train_index.append(index_false_train[arg_max] + index_true_train[arg_max])
+    test_index.append(index_false_test[arg_max] + index_true_test[arg_max])
+    
+    # for i in range(len(index_false_test)):
+    #     if (len(index_true_test[i])>0):
+    #         train_index.append(index_false_train[i] + index_true_train[i])
+    #         test_index.append(index_false_test[i] + index_true_test[i])
+    
+    return train_index, test_index, arg_max
 
-def random_undersample(index_false_train,index_true_train,index_true_test):
+def random_undersample(index_false_train,index_true_train,index_true_test,arg_max,n):
     """
     index_false_train: array of list of int - Indexes of the true labels to use for each train set
     index_true_train: array of list of int - Indexes of the true labels to use for each train set
+    n: int - Inverse of the ratio positive/negative labels
     
     Returns
         undersample_train_index: array of list of int - Indexes for the training sets in the cross-validation iterations
@@ -363,10 +385,17 @@ def random_undersample(index_false_train,index_true_train,index_true_test):
     """
     
     undersample_train_index = []
-    for i in range(len(index_true_train)):
-        if (len(index_true_test[i])>20):
-            rd = random.sample(range(len(index_false_train[i])), len(index_true_train[i]))
-            undersample_train_index.append([index_false_train[i][r] for r in rd ] + index_true_train[i])
+    
+    rd = random.sample(range(len(index_false_train[arg_max])), n*len(index_true_train[arg_max]))
+    undersample_train_index.append([index_false_train[arg_max][r] for r in rd ] + index_true_train[arg_max])
+    
+    # for i in range(len(index_true_train)):
+    #     if (len(index_true_test[i])>0):
+    #         rd = random.sample(range(len(index_false_train[i])), len(index_true_train[i]))
+    #         undersample_train_index.append([index_false_train[i][r] for r in rd ] + index_true_train[i])
+
+    
+    print('\nRandom undersampling done.')
     return undersample_train_index
 
 def remove_null(X):
@@ -401,59 +430,115 @@ def remove_outliers(X,y,groups,z,n):
 
     """
     
-    return X[(z<n).all(axis=1)], y[(z<n).all(axis=1)], groups[(z<n).all(axis=1)]
+    T =  X[(z<n).all(axis=1)], y[(z<n).all(axis=1)], groups[(z<n).all(axis=1)]
+    print('\nOutliers removed.')
+    return T
 
-def pipeline(X,y,train_index,test_index):
-    
+def compute_PCA(X,n):
     sc = StandardScaler()
     X = sc.fit_transform(X.values)
-    
-    X_sparse = csr_matrix(X)
-    svd = TruncatedSVD(n_components=100, random_state=42)
-    X_svd = svd.fit(X_sparse).transform(X_sparse)
-    
-    pca = PCA(n_components=400, svd_solver='full')
+    pca = PCA(n_components=n)
     X_pca = pca.fit_transform(X)
-    
+    return X_pca
+
+def compute_PCA(X,n):
+    sc = StandardScaler()
+    X = sc.fit_transform(X.values)  
+    X_sparse = csr_matrix(X)
+    svd = TruncatedSVD(n_components=100)
+    X_svd = svd.fit(X_sparse).transform(X_sparse)
+    return X_svd
+
+def pipeline(X,y,train_index,test_index):
     y = y.values.flatten()
     
-    acc_log_reg = []
-    for i in range(len(test_index)):
-        X_train = X_svd[train_index[i]]
-        y_train = y[train_index[i]]
+    names = [
+        # 'LogisticRegression',
+        # "Nearest Neighbors",
+        "SVM",
+        # "RBF SVM",
+        # "Gaussian Process",
+        # "Decision Tree",
+        # "Random Forest",
+        # "Neural Net",
+        # "AdaBoost",
+        # "Naive Bayes",
+        # "QDA",
+    ]
+    
+    class_weights={0: 1/2,1: 62/2}
+    
+    classifiers = [
+        # LogisticRegression(solver='newton-cg', max_iter=1000, class_weight='balanced', random_state=42),
+        # KNeighborsClassifier(3),
+        SVC(class_weight="balanced"),
+        # SVC(gamma=2, C=1),
+        # GaussianProcessClassifier(1.0 * RBF(1.0)),
+        # DecisionTreeClassifier(max_depth=5),
+        # RandomForestClassifier(max_depth=5, n_estimators=10, max_features=1),
+        # MLPClassifier(alpha=1, max_iter=1000),
+        # AdaBoostClassifier(),
+        # GaussianNB(),
+        # QuadraticDiscriminantAnalysis(),
+    ]
+    
+    balanced_acc = []
+    f2_score = []
+    for name, clf in zip(names, classifiers):
+    
+        temp_balanced_acc = []
+        temp_f2_score = []
+        for i in range(len(test_index)):
+            X_train = X[train_index[i]]
+            y_train = y[train_index[i]]
+    
+            X_test = X[test_index[i]]
+            y_test = y[test_index[i]]
+            
+            w = compute_class_weight(class_weight="balanced",y=y_train,classes=np.unique(y_train))
+            print(f'\nWeight majority class: {w[0]*2:.3f}')
+            print(f'Weight minority class: {w[1]*2:.3f}')
+            
+            clf.fit(X_train, y_train)
+            
+            y_pred = clf.predict(X_test)
+            temp_balanced_acc.append(balanced_accuracy_score(y_test, y_pred))
+            temp_f2_score.append(fbeta_score(y_test, y_pred, average='macro', beta=2))
 
-        X_test = X_svd[test_index[i]]
-        y_test = y[test_index[i]]
+            
+            cm = confusion_matrix(y_test, y_pred)
+            cm_display = ConfusionMatrixDisplay(cm).plot()
         
-        # clf = LogisticRegression(solver='newton-cg', max_iter=1000)
-        # clf = clf.fit(X_train, y_train)
+        print('\n{} trained.'.format(name))
+        balanced_acc.append(temp_balanced_acc)
+        f2_score.append(temp_f2_score)
         
-        clf = SVC()
-        clf.fit(X_train, y_train)
-        
-        y_pred = clf.predict(X_test)
-        acc_log_reg.append(balanced_accuracy_score(y_test, y_pred))
-        
-    return np.array(acc_log_reg)
+    return np.array(balanced_acc), np.array(f2_score)
 
-encode_families, groups = encode_complete_labels(complete_labels, index, s)    
+encode_families, groups = encode_complete_labels(complete_labels, index, s)   
 
 load_features = memory.cache(load_features)
 X = load_features()
-y = labels[:30000]
-groups = groups[:30000]
+
+N = 30000
+X = X[0:N]
+y = labels[0:N]
+groups = groups[0:N]
+
 z = z_score(X)
 
-X,y,groups = remove_outliers(X,y,groups,z,n=4)
+# X,y,groups = remove_outliers(X,y,groups,z,n=10)
 p_true = labels_proportion(y)
 
 index_true, index_false = index_true_false(y)
 index_true_test, index_true_train, size_false_test, size_false_train = group_k_fold_true(X, y, groups, index_true, index_false, p_true)
 index_false_test, index_false_train = group_k_fold_false(X,y,index_false,size_false_test,size_false_train)
-train_index, test_index = assemble_train_test_index(index_false_test,index_false_train,index_true_test,index_true_train)
-undersample_train_index = random_undersample(index_false_train,index_true_train,index_true_test)
+train_index, test_index, arg_max = assemble_train_test_index(index_false_test,index_false_train,index_true_test,index_true_train)
 
-acc_log_reg = pipeline(X,y,undersample_train_index,test_index)
+undersample_train_index = random_undersample(index_false_train,index_true_train,index_true_test,arg_max,n=10)
+compute_PCA = memory.cache(compute_PCA)
+X_pca = compute_PCA(X,n=100)
+balanced_acc, f2_score = pipeline(X_pca,y,train_index,test_index)
 
 end = time.time()
 print('\nThe function took {:.2f}s to compute.'.format(end - start))
