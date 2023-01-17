@@ -194,7 +194,7 @@ s, p = sum_labels(sec_sys,s_complete,index)
 # IMPORT DEPENDENCIES
 #-----------------------------------------------------------------------------#
 import random
-from sklearn.metrics import balanced_accuracy_score, fbeta_score, confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import roc_auc_score, balanced_accuracy_score, fbeta_score, confusion_matrix, ConfusionMatrixDisplay
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA, TruncatedSVD
 from sklearn.model_selection import LeaveOneGroupOut, GridSearchCV
@@ -205,7 +205,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.utils.class_weight import compute_class_weight
 from scipy.sparse import csr_matrix
 import scipy.stats as stats
-
+import matplotlib.pyplot as plt
 
 # from sklearn.neural_network import MLPClassifier
 # from sklearn.gaussian_process import GaussianProcessClassifier
@@ -216,7 +216,7 @@ import scipy.stats as stats
 # from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
 
 #-----------------------------------------------------------------------------#
-# PHASE 2: Predicting protein function from it’s sequence
+# PHASE 2: Training a ML pipeline
 #-----------------------------------------------------------------------------#
 def encode_complete_labels(complete_labels, index, s):
     """
@@ -377,6 +377,8 @@ def random_undersample(index_false_train,index_true_train,index_true_test,arg_ma
     """
     index_false_train: array of list of int - Indexes of the true labels to use for each train set
     index_true_train: array of list of int - Indexes of the true labels to use for each train set
+    index_true_test: array of list of int - Indexes of the true labels to use for each test set
+    arg_max: int - Index of the cv fold with the longest list of true labels for the testing set
     n: int - Inverse of the ratio positive/negative labels
     
     Returns
@@ -395,7 +397,7 @@ def random_undersample(index_false_train,index_true_train,index_true_test,arg_ma
     #         undersample_train_index.append([index_false_train[i][r] for r in rd ] + index_true_train[i])
 
     
-    print('\nRandom undersampling done.')
+    # print('\nRandom undersampling done.')
     return undersample_train_index
 
 def remove_null(X):
@@ -435,13 +437,27 @@ def remove_outliers(X,y,groups,z,n):
     return T
 
 def compute_PCA(X,n):
+    """
+    X: pandas array - Features matrix
+    n: int - Number of components 
+    
+    Returns the PCA decomposition of X
+
+    """
     sc = StandardScaler()
     X = sc.fit_transform(X.values)
     pca = PCA(n_components=n)
     X_pca = pca.fit_transform(X)
     return X_pca
 
-def compute_PCA(X,n):
+def compute_SVD(X,n):
+    """
+    X: pandas array - Features matrix
+    n: int - Number of components 
+    
+    Returns the SVD decomposition of X
+
+    """
     sc = StandardScaler()
     X = sc.fit_transform(X.values)  
     X_sparse = csr_matrix(X)
@@ -449,73 +465,73 @@ def compute_PCA(X,n):
     X_svd = svd.fit(X_sparse).transform(X_sparse)
     return X_svd
 
-def pipeline(X,y,train_index,test_index):
+def classifier(X,y,train_index,test_index):
     y = y.values.flatten()
     
-    names = [
-        # 'LogisticRegression',
-        # "Nearest Neighbors",
-        "SVM",
-        # "RBF SVM",
-        # "Gaussian Process",
-        # "Decision Tree",
-        # "Random Forest",
-        # "Neural Net",
-        # "AdaBoost",
-        # "Naive Bayes",
-        # "QDA",
-    ]
-    
+    name = "SVM"
     class_weights={0: 1/2,1: 62/2}
+    clf = SVC(class_weight="balanced",random_state=42)
     
-    classifiers = [
-        # LogisticRegression(solver='newton-cg', max_iter=1000, class_weight='balanced', random_state=42),
-        # KNeighborsClassifier(3),
-        SVC(class_weight="balanced"),
-        # SVC(gamma=2, C=1),
-        # GaussianProcessClassifier(1.0 * RBF(1.0)),
-        # DecisionTreeClassifier(max_depth=5),
-        # RandomForestClassifier(max_depth=5, n_estimators=10, max_features=1),
-        # MLPClassifier(alpha=1, max_iter=1000),
-        # AdaBoostClassifier(),
-        # GaussianNB(),
-        # QuadraticDiscriminantAnalysis(),
-    ]
-    
-    balanced_acc = []
-    f2_score = []
-    for name, clf in zip(names, classifiers):
-    
-        temp_balanced_acc = []
-        temp_f2_score = []
-        for i in range(len(test_index)):
-            X_train = X[train_index[i]]
-            y_train = y[train_index[i]]
-    
-            X_test = X[test_index[i]]
-            y_test = y[test_index[i]]
-            
-            w = compute_class_weight(class_weight="balanced",y=y_train,classes=np.unique(y_train))
-            print(f'\nWeight majority class: {w[0]*2:.3f}')
-            print(f'Weight minority class: {w[1]*2:.3f}')
-            
-            clf.fit(X_train, y_train)
-            
-            y_pred = clf.predict(X_test)
-            temp_balanced_acc.append(balanced_accuracy_score(y_test, y_pred))
-            temp_f2_score.append(fbeta_score(y_test, y_pred, average='macro', beta=2))
+    X_train = X[train_index[0]]
+    y_train = y[train_index[0]]
 
-            
-            cm = confusion_matrix(y_test, y_pred)
-            cm_display = ConfusionMatrixDisplay(cm).plot()
+    X_test = X[test_index[0]]
+    y_test = y[test_index[0]]
+    
+    w = compute_class_weight(class_weight="balanced",y=y_train,classes=np.unique(y_train))
+    # print(f'\nWeight majority class: {w[0]*2:.3f}')
+    # print(f'Weight minority class: {w[1]*2:.3f}')
+    
+    clf.fit(X_train, y_train)
+    
+    y_pred = clf.predict(X_test)
+    
+    roc_score = roc_auc_score(y_test, y_pred)
+    balanced_acc = balanced_accuracy_score(y_test, y_pred)
+    f2_score = fbeta_score(y_test, y_pred, average='macro', beta=2)
+    
+    # cm = confusion_matrix(y_test, y_pred)
+    # cm_display = ConfusionMatrixDisplay(cm).plot()
+    # plt.show()
         
-        print('\n{} trained.'.format(name))
-        balanced_acc.append(temp_balanced_acc)
-        f2_score.append(temp_f2_score)
+    # print('\n{} trained.'.format(name))
         
-    return np.array(balanced_acc), np.array(f2_score)
+    return clf, roc_score, balanced_acc, f2_score
 
-encode_families, groups = encode_complete_labels(complete_labels, index, s)   
+def pipeline(index_false_train,index_true_train,index_true_test,arg_max,dim_reduction_strategy):
+    
+    undersample_list = [2,5,10,20,50]
+    dim_red_strat_list = ["PCA","SVD"]
+    dim_red_n_list = [1,2,5,10,20,50,100,200,500]
+    
+    parameters = []# np.zeros((len(undersample_list)*len(dim_red_strat_list)*len(dim_red_n_list),3))
+    results = [] # np.zeros((len(undersample_list)*len(dim_red_strat_list)*len(dim_red_n_list),4))
+    
+    for u in undersample_list:
+        for strat in dim_red_strat_list:
+            for n in dim_red_n_list:
+                
+                parameters.append([u,strat,n])
+                
+                undersample_train_index = random_undersample(index_false_train,index_true_train,index_true_test,arg_max,n=u)
+            
+                dim_reduction_strategy = strat
+                if (dim_reduction_strategy == "PCA"):
+                    X_pca = compute_PCA(X,n=n)
+                    clf, roc_score, balanced_acc, f2_score = classifier(X_pca,y,undersample_train_index,test_index)
+                elif (dim_reduction_strategy == "SVD"):
+                    X_svd = compute_SVD(X,n=n)
+                    clf, roc_score, balanced_acc, f2_score = classifier(X_svd,y,undersample_train_index,test_index)
+                else:
+                    print ("Dimensionality reduction startegy chosen is not supported! Choose PCA or SVD.")
+            
+                results.append([clf,roc_score,balanced_acc,f2_score])
+                
+                print('\n({}-{}-{}) trained.'.format(u,strat,n))
+                
+    return np.array(parameters), np.array(results)
+
+encode_families, groups = encode_complete_labels(complete_labels, index, s)  
 
 load_features = memory.cache(load_features)
 X = load_features()
@@ -535,10 +551,72 @@ index_true_test, index_true_train, size_false_test, size_false_train = group_k_f
 index_false_test, index_false_train = group_k_fold_false(X,y,index_false,size_false_test,size_false_train)
 train_index, test_index, arg_max = assemble_train_test_index(index_false_test,index_false_train,index_true_test,index_true_train)
 
-undersample_train_index = random_undersample(index_false_train,index_true_train,index_true_test,arg_max,n=10)
-compute_PCA = memory.cache(compute_PCA)
-X_pca = compute_PCA(X,n=100)
-balanced_acc, f2_score = pipeline(X_pca,y,train_index,test_index)
+undersample_train_index = random_undersample(index_false_train,index_true_train,index_true_test,arg_max,n=20)
+
+# compute_PCA = memory.cache(compute_PCA)
+# compute_SVD = memory.cache(compute_SVD)
+# classifier = memory.cache(classifier)
+pipeline = memory.cache(pipeline)
+parameters, results = pipeline(index_false_train,index_true_train,index_true_test,arg_max,dim_reduction_strategy=None)
+scores = np.array(results[:,1:4], dtype=float)
+
+clf = [results[np.argmax(scores[:,1]),0],
+       results[np.argmax(scores[:,2]),0]]
+
+param = [parameters[np.argmax(scores[:,1]),0:3],
+         parameters[np.argmax(scores[:,2]),0:3]]
+
+#-----------------------------------------------------------------------------#
+# PHASE 3: Predicting protein function from it’s sequence
+#-----------------------------------------------------------------------------#
+def load_features_valid():
+    """
+    Returns pandas array of features.csv for the valid data set
+
+    """
+    
+    X = pd.read_csv("dataset/partial_dataset_valid/features.csv", index_col=0)
+    print('\nFeatures loaded.')
+    return X
+
+def load_labels_valid():
+    """
+    Returns pandas array of labels.csv for the valid data set
+
+    """
+    
+    return pd.read_csv("dataset/partial_dataset_valid/labels.csv", index_col=0)
+
+def pipeline_valid(X_valid,y_valid,clf,param):
+    y_valid = y_valid.values.flatten()
+    
+    metrics = []
+    for i in range(len(clf)):
+        if (param[i][1] == "PCA"):
+            X_valid_pca = compute_PCA(X_valid,n=int(param[i][2]))
+            y_pred = clf[i].predict(X_valid_pca)
+        elif (param[i][1] == "SVD"):
+            X_valid_svd = compute_PCA(X_valid,n=int(param[i][2]))
+            y_pred = clf[i].predict(X_valid_svd)
+        
+        m = [balanced_accuracy_score(y_valid, y_pred),
+                   fbeta_score(y_valid, y_pred,average='macro', beta=2)]
+        metrics.append(m)
+        
+        cm = confusion_matrix(y_valid, y_pred)
+        cm_display = ConfusionMatrixDisplay(cm).plot()
+        plt.show()
+    return metrics
+
+load_features_valid = memory.cache(load_features_valid)
+X_valid = load_features_valid()
+X_valid = X_valid[0:N]
+
+load_labels_valid = memory.cache(load_labels_valid)
+y_valid = load_labels_valid()
+y_valid = y_valid[0:N]
+
+metrics_valid = pipeline_valid(X_valid,y_valid,clf,param)
 
 end = time.time()
 print('\nThe function took {:.2f}s to compute.'.format(end - start))
