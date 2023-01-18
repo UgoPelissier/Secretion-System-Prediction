@@ -444,10 +444,21 @@ def compute_PCA(X,n):
     Returns the PCA decomposition of X
 
     """
+    print('\nComputing PCA ...', end =" ")
     sc = StandardScaler()
     X = sc.fit_transform(X.values)
     pca = PCA(n_components=n)
     X_pca = pca.fit_transform(X)
+    
+    # var = pca.explained_variance_ratio_[0:10]
+    # pca_list = np.array(['1','2','3','4','5','6','7','8','9','10'])
+    # plt.bar(pca_list,var)
+    # plt.xlabel('Components')
+    # plt.ylabel('Variance explained (%)')
+    # plt.legend()
+    # plt.show()
+    
+    print('Done.')
     return X_pca
 
 def compute_SVD(X,n):
@@ -458,14 +469,39 @@ def compute_SVD(X,n):
     Returns the SVD decomposition of X
 
     """
+    print('\nComputing SVD ...', end =" ")
     sc = StandardScaler()
     X = sc.fit_transform(X.values)  
     X_sparse = csr_matrix(X)
-    svd = TruncatedSVD(n_components=100)
+    svd = TruncatedSVD(n_components=n)
     X_svd = svd.fit(X_sparse).transform(X_sparse)
+    
+    var = svd.explained_variance_ratio_[0:10]
+    svd_list = np.array(['1','2','3','4','5','6','7','8','9','10'])
+    plt.bar(svd_list,var)
+    plt.xlabel('Components')
+    plt.ylabel('Variance explained (%)')
+    plt.legend()
+    plt.show()
+    
+    print('Done.')
     return X_svd
 
 def classifier(X,y,train_index,test_index):
+    """
+    X: pandas array - Features matrix
+    y: pandas array - Labels
+    train_index: array of list of int - Indexes for the training sets in the cross-validation iterations
+    train_index: array of list of int - Indexes for the testing sets in the cross-validation iterations
+    
+    Returns
+        clf: classifier - The trained classifier on the training dataset
+        roc_score:float - ROC AUC score
+        balanced_acc: float - Balanced accuracy
+        f2_score: float - F2 score
+
+    """
+    
     y = y.values.flatten()
     
     name = "SVM"
@@ -499,44 +535,47 @@ def classifier(X,y,train_index,test_index):
     return clf, roc_score, balanced_acc, f2_score
 
 def pipeline(index_false_train,index_true_train,index_true_test,arg_max,dim_reduction_strategy):
+    """
+    index_false_train: array of list of int - Indexes of the true labels to use for each train set
+    index_true_train: array of list of int - Indexes of the true labels to use for each train set
+    index_true_test: array of list of int - Indexes of the true labels to use for each test set
+    arg_max: int - Index of the cv fold with the longest list of true labels for the testing set
+    dim_reduction_strategy: string - Either PCA or SVD
     
-    undersample_list = [2,5,10,20,50]
-    dim_red_strat_list = ["PCA","SVD"]
-    dim_red_n_list = [1,2,5,10,20,50,100,200,500]
+    Returns
+        parameters: list of objects [int, string, int] - Undersample ratio, Dimensionality reduction strategy, Number of components 
+        clf: classifier - The trained classifier on the training dataset
+        scores: list of float - ROC AUC score, Balanced accuracy, F2 score
+
+    """
+    parameters = [50,"PCA",200]
     
-    parameters = []# np.zeros((len(undersample_list)*len(dim_red_strat_list)*len(dim_red_n_list),3))
-    results = [] # np.zeros((len(undersample_list)*len(dim_red_strat_list)*len(dim_red_n_list),4))
+    undersample_train_index = random_undersample(index_false_train,index_true_train,index_true_test,arg_max,n=parameters[0])
+
+    dim_reduction_strategy = parameters[1]
+    if (dim_reduction_strategy == "PCA"):
+        X_pca = compute_PCA(X,n=parameters[2])
+        clf, roc_score, balanced_acc, f2_score = classifier(X_pca,y,undersample_train_index,test_index)
+    elif (dim_reduction_strategy == "SVD"):
+        X_svd = compute_SVD(X,n=parameters[2])
+        clf, roc_score, balanced_acc, f2_score = classifier(X_svd,y,undersample_train_index,test_index)
+    else:
+        print ("Dimensionality reduction startegy chosen is not supported! Choose PCA or SVD.")
+
+    scores = [roc_score,balanced_acc,f2_score]
     
-    for u in undersample_list:
-        for strat in dim_red_strat_list:
-            for n in dim_red_n_list:
+    print('\nModel trained.')
                 
-                parameters.append([u,strat,n])
-                
-                undersample_train_index = random_undersample(index_false_train,index_true_train,index_true_test,arg_max,n=u)
-            
-                dim_reduction_strategy = strat
-                if (dim_reduction_strategy == "PCA"):
-                    X_pca = compute_PCA(X,n=n)
-                    clf, roc_score, balanced_acc, f2_score = classifier(X_pca,y,undersample_train_index,test_index)
-                elif (dim_reduction_strategy == "SVD"):
-                    X_svd = compute_SVD(X,n=n)
-                    clf, roc_score, balanced_acc, f2_score = classifier(X_svd,y,undersample_train_index,test_index)
-                else:
-                    print ("Dimensionality reduction startegy chosen is not supported! Choose PCA or SVD.")
-            
-                results.append([clf,roc_score,balanced_acc,f2_score])
-                
-                print('\n({}-{}-{}) trained.'.format(u,strat,n))
-                
-    return np.array(parameters), np.array(results)
+    return parameters, clf, scores
+
+print('\n-- PHASE 1: TRAINING ---')
 
 encode_families, groups = encode_complete_labels(complete_labels, index, s)  
 
 load_features = memory.cache(load_features)
 X = load_features()
 
-N = 30000
+N = 500000
 X = X[0:N]
 y = labels[0:N]
 groups = groups[0:N]
@@ -552,22 +591,10 @@ index_false_test, index_false_train = group_k_fold_false(X,y,index_false,size_fa
 train_index, test_index, arg_max = assemble_train_test_index(index_false_test,index_false_train,index_true_test,index_true_train)
 
 undersample_train_index = random_undersample(index_false_train,index_true_train,index_true_test,arg_max,n=20)
-
-# compute_PCA = memory.cache(compute_PCA)
-# compute_SVD = memory.cache(compute_SVD)
-# classifier = memory.cache(classifier)
-pipeline = memory.cache(pipeline)
-parameters, results = pipeline(index_false_train,index_true_train,index_true_test,arg_max,dim_reduction_strategy=None)
-scores = np.array(results[:,1:4], dtype=float)
-
-clf = [results[np.argmax(scores[:,1]),0],
-       results[np.argmax(scores[:,2]),0]]
-
-param = [parameters[np.argmax(scores[:,1]),0:3],
-         parameters[np.argmax(scores[:,2]),0:3]]
+parameters, clf, scores = pipeline(index_false_train,index_true_train,index_true_test,arg_max,dim_reduction_strategy=None)
 
 #-----------------------------------------------------------------------------#
-# PHASE 3: Predicting protein function from it’s sequence
+# PHASE 3: Predicting protein function from it’s sequence on the validation set
 #-----------------------------------------------------------------------------#
 def load_features_valid():
     """
@@ -588,25 +615,40 @@ def load_labels_valid():
     return pd.read_csv("dataset/partial_dataset_valid/labels.csv", index_col=0)
 
 def pipeline_valid(X_valid,y_valid,clf,param):
+    """
+    X_valid: pandas array - Features matrix of the validation dataset
+    y_valid: pandas array - Labels of the validation dataset
+    clf: classifier - The trained classifier on the training dataset
+    param: list of objects [int, string, int] - Undersample ratio, Dimensionality reduction strategy, Number of components 
+    
+    Returns
+        metrics: list of float - Balanced accuracy, F2 score
+
+    """
+    
     y_valid = y_valid.values.flatten()
     
     metrics = []
-    for i in range(len(clf)):
-        if (param[i][1] == "PCA"):
-            X_valid_pca = compute_PCA(X_valid,n=int(param[i][2]))
-            y_pred = clf[i].predict(X_valid_pca)
-        elif (param[i][1] == "SVD"):
-            X_valid_svd = compute_PCA(X_valid,n=int(param[i][2]))
-            y_pred = clf[i].predict(X_valid_svd)
+    if (param[1] == "PCA"):
+        X_valid_pca = compute_PCA(X_valid,n=int(param[2]))
+        print('\nPrediction on the validation data set ... ', end = "")
+        y_pred = clf.predict(X_valid_pca)
+        print('Done.')
+    elif (param[1] == "SVD"):
+        X_valid_svd = compute_SVD(X_valid,n=int(param[2]))
+        print('\nPrediction on the validation data set ... ', end = "")
+        y_pred = clf.predict(X_valid_svd)
+        print('Done.')
         
-        m = [balanced_accuracy_score(y_valid, y_pred),
-                   fbeta_score(y_valid, y_pred,average='macro', beta=2)]
-        metrics.append(m)
-        
-        cm = confusion_matrix(y_valid, y_pred)
-        cm_display = ConfusionMatrixDisplay(cm).plot()
-        plt.show()
+    metrics = [balanced_accuracy_score(y_valid, y_pred),
+               fbeta_score(y_valid, y_pred,average='macro', beta=2)]
+    
+    cm = confusion_matrix(y_valid, y_pred)
+    cm_display = ConfusionMatrixDisplay(cm).plot()
+    plt.show()
     return metrics
+
+print('\n-- PHASE 2: VALIDATION ---')
 
 load_features_valid = memory.cache(load_features_valid)
 X_valid = load_features_valid()
@@ -616,7 +658,52 @@ load_labels_valid = memory.cache(load_labels_valid)
 y_valid = load_labels_valid()
 y_valid = y_valid[0:N]
 
-metrics_valid = pipeline_valid(X_valid,y_valid,clf,param)
+metrics_valid = pipeline_valid(X_valid,y_valid,clf,parameters)
+
+#-----------------------------------------------------------------------------#
+# PHASE 4: Predicting protein function from it’s sequence on the test set
+#-----------------------------------------------------------------------------#
+def load_features_test():
+    """
+    Returns pandas array of features.csv for the valid data set
+
+    """
+    
+    X = pd.read_csv("dataset/partial_dataset_test/features.csv", index_col=0)
+    print('\nFeatures loaded.')
+    return X
+
+def pipeline_test(X_test,clf,param):
+    """
+    X_test: pandas array - Features matrix of the test dataset
+    clf: classifier - The trained classifier on the training dataset
+    param: list of objects [int, string, int] - Undersample ratio, Dimensionality reduction strategy, Number of components 
+    
+    Returns
+        y_pred: array of bool - Labels predictions for the test dataset and save it in a .csv file
+
+    """
+    
+    if (param[1] == "PCA"):
+        X_test_pca = compute_PCA(X_test,n=int(param[2]))
+        print('\nPrediction on the test data set ... ', end = "")
+        y_pred = clf.predict(X_test_pca)
+        print('Done.')
+    elif (param[1] == "SVD"):
+        X_test_svd = compute_SVD(X_test,n=int(param[2]))
+        print('\nPrediction on the test data set ... ', end = "")
+        y_pred = clf.predict(X_test_svd)
+        print('Done.')
+    np.savetxt('test_pred.csv', y_pred, delimiter=',', fmt="%s")
+    return y_pred
+
+print('\n-- PHASE 3: VALIDATION ---')
+
+load_features_test = memory.cache(load_features_test)
+X_test = load_features_test()
+X_test = X_test[0:N]
+
+y_pred_test = pipeline_test(X_test,clf,parameters)
 
 end = time.time()
 print('\nThe function took {:.2f}s to compute.'.format(end - start))
