@@ -23,4 +23,6 @@ The goal of this project is to predict whether a protein is part of a secretion 
 
 ### PDF
 
-```PHASE_1_Preliminary_Analysis``` is our report for Phase 1.
+```PHASE_1_Preliminary_Analysis.pdf``` is our report for Phase 1.
+
+```ML_Project.pdf``` is our final report for the project.
