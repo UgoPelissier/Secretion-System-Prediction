@@ -582,7 +582,6 @@ groups = groups[0:N]
 
 z = z_score(X)
 
-# X,y,groups = remove_outliers(X,y,groups,z,n=10)
 p_true = labels_proportion(y)
 
 index_true, index_false = index_true_false(y)
@@ -697,7 +696,7 @@ def pipeline_test(X_test,clf,param):
     np.savetxt('test_pred.csv', y_pred, delimiter=',', fmt="%s")
     return y_pred
 
-print('\n-- PHASE 3: VALIDATION ---')
+print('\n-- PHASE 3: TEST ---')
 
 load_features_test = memory.cache(load_features_test)
 X_test = load_features_test()
