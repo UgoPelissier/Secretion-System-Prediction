@@ -576,9 +576,9 @@ load_features = memory.cache(load_features)
 X = load_features()
 
 N = 500000
-X = X[0:N]
-y = labels[0:N]
-groups = groups[0:N]
+X = X#[0:N]
+y = labels#[0:N]
+groups = groups#[0:N]
 
 z = z_score(X)
 
@@ -651,11 +651,11 @@ print('\n-- PHASE 2: VALIDATION ---')
 
 load_features_valid = memory.cache(load_features_valid)
 X_valid = load_features_valid()
-X_valid = X_valid[0:N]
+X_valid = X_valid#[0:N]
 
 load_labels_valid = memory.cache(load_labels_valid)
 y_valid = load_labels_valid()
-y_valid = y_valid[0:N]
+y_valid = y_valid#[0:N]
 
 metrics_valid = pipeline_valid(X_valid,y_valid,clf,parameters)
 
@@ -700,7 +700,7 @@ print('\n-- PHASE 3: TEST ---')
 
 load_features_test = memory.cache(load_features_test)
 X_test = load_features_test()
-X_test = X_test[0:N]
+X_test = X_test#[0:N]
 
 y_pred_test = pipeline_test(X_test,clf,parameters)
 
