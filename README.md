@@ -1,28 +1,34 @@
-# HPC-AI - Introduction to machine learning - Final project
+# HPC-AI - Distributed Linear Algebra
 
-The goal of this project is to predict whether a protein is part of a secretion system.
+## Geometric multigrid method in 2D
 
-## Files description
+The aim of this project is to implement a multigrid method to solve the 2D Poisson problem on the unit square.
 
-### Python scripts
+```math
+\begin{gather*}
+- \Delta u(x,y) +\sigma u(x,y) = f(x,y) \text{ in } \Omega \text{ ,} \quad \sigma \ge 0 \\
+u(x,y) = 0 \text{ in } \partial \Omega
+\end{gather*}
+```
 
-```project.py``` is the main script where we:
-- import and pre-process the data.
-- train numerous ML pipelines.
-- chose one pipeline, valid and test it.
+We will also tackle the anisotropic problem.
 
-```visualize.py``` is a secondary script used only to generate a visualization of our cross-validation strategy.
+```math
+\begin{gather*}
+-\frac{\partial^2(x,y)}{\partial x^2} -\epsilon  \frac{\partial^2(x,y)}{\partial y^2} = f(x,y)) \text{ in } \Omega  \\
+u(x,y) = 0 \text{ in } \partial \Omega
+\end{gather*}
+```
 
-### Results
+## Python scripts
 
-```parameters.csv``` contains all the different combination of parameters used to train the models.
+```tp2.py``` implements multigrid method for Poisson equation in 1D. It was the starting point of the project.
 
-```scores.csv``` contains the corresponding scores (ROC AUC score, balanced accuracy and F2 score).
+```geometric_multigrid_2D.py``` implements multigrid method for Poisson equation in 2D.
 
-```test_pred.csv``` contains the labels predication for the test dataset.
-
-### PDF
-
-```PHASE_1_Preliminary_Analysis.pdf``` is our report for Phase 1.
-
-```ML_Project.pdf``` is our final report for the project.
+These scripts implement:
+- Construction of the Laplacian matrix
+- Stationary iterative methods (JOR and SOR)
+- Transfer operators between fine and coarse grid
+- Convergence speed
+- Plots and post-process
